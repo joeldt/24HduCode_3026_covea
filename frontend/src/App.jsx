@@ -11,7 +11,6 @@ function App() {
     try {
       setError("");
       const result = await bootstrapGame();
-
       setPlayer(result.data.player);
       setRuntimeState(result.data.state);
     } catch (err) {
@@ -31,7 +30,6 @@ function App() {
 
     try {
       setError("");
-
       const result = await moveBoat(direction);
 
       setRuntimeState((prev) => ({
@@ -39,6 +37,7 @@ function App() {
         ...result.data
       }));
     } catch (err) {
+      console.error("Erreur move :", err);
       setError(err.message);
     } finally {
       setTimeout(() => {
@@ -53,6 +52,7 @@ function App() {
       await upgradeStorage();
       await loadInitialData();
     } catch (err) {
+      console.error("Erreur upgrade :", err);
       setError(err.message);
     }
   }
@@ -64,7 +64,7 @@ function App() {
     const boatX = stateData.position?.x ?? 0;
     const boatY = stateData.position?.y ?? 0;
 
-    const knownCells = stateData.discoveredCells??stateData.knownCells ?? [];
+    const knownCells = stateData.knownCells ?? [];
     const history = stateData.history ?? [];
     const islandDetectionHistory = stateData.islandDetectionHistory ?? [];
 
@@ -83,16 +83,18 @@ function App() {
       knownCells,
       history,
       discoveredCount: knownCells.length,
-
-     islandHistoryFormatted: islandDetectionHistory.map((island, index) => ({
-      id: index,
-      name: island.name || "Île inconnue",
-      coords: Array.isArray(island.tiles) ? island.tiles : Array.isArray(island.coords)? island.coords: [],
-      time: island.timestamp
-        ? new Date(island.timestamp).toLocaleTimeString()
-        : "-"
-    })) 
-
+      islandHistoryFormatted: islandDetectionHistory.map((island, index) => ({
+        id: index,
+        name: island.name || "Île inconnue",
+        coords: Array.isArray(island.tiles)
+          ? island.tiles
+          : Array.isArray(island.coords)
+          ? island.coords
+          : [],
+        time: island.timestamp
+          ? new Date(island.timestamp).toLocaleTimeString()
+          : "-"
+      }))
     };
   }, [player, runtimeState]);
 
@@ -109,7 +111,6 @@ function App() {
         fontFamily: "Arial"
       }}
     >
-      {/* LEFT PANEL */}
       <aside>
         <h1>3026 - Cartographie</h1>
 
@@ -138,7 +139,7 @@ function App() {
           <h2>Déplacements</h2>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "8px" }}>
-            {["N", "S", "E", "W", "NE", "NW", "SE", "SW"].map((dir) => (
+            {["N", "S", "E", "W"].map((dir) => (
               <button
                 key={dir}
                 onClick={() => handleMove(dir)}
@@ -164,7 +165,6 @@ function App() {
         </section>
       </aside>
 
-      {/* MAP */}
       <main>
         <MapGrid
           knownCells={displayState.knownCells}
@@ -173,33 +173,43 @@ function App() {
         />
       </main>
 
-      {/* RIGHT PANEL */}
       <aside style={rightPanel}>
         <h2>Historique déplacements</h2>
 
-        {displayState.history.map((move, i) => (
-          <div key={i} style={logCard}>
-            <strong>{move.direction}</strong>
-            <div>📍 ({move.position?.x},{move.position?.y})</div>
-            <div>⚡ {move.energy}</div>
-          </div>
-        ))}
+        {displayState.history.length === 0 ? (
+          <p>Aucun déplacement.</p>
+        ) : (
+          displayState.history
+            .slice()
+            .reverse()
+            .map((move, i) => (
+              <div key={i} style={logCard}>
+                <strong>{move.direction}</strong>
+                <div>📍 ({move.position?.x},{move.position?.y})</div>
+                <div>⚡ {move.energy}</div>
+                <div>🕒 {move.timestamp ? new Date(move.timestamp).toLocaleTimeString() : "-"}</div>
+              </div>
+            ))
+        )}
 
         <h2 style={{ marginTop: "20px" }}>Îles détectées</h2>
 
-        {displayState.islandHistoryFormatted.map((island) => (
-          <div key={island.id} style={logCard}>
-            🏝 {island.name}
-            <div>{island.time}</div>
-
-            {/* ✅ COORDONNÉES */}
-            {Array.isArray(island.coords)&&island.coords.map((c, i) => (
-              <div key={i} style={{ fontSize: "12px", color: "#aaa" }}>
-                ({c.x}, {c.y})
-              </div>
-            ))}
-          </div>
-        ))}
+        {displayState.islandHistoryFormatted.length === 0 ? (
+          <p>Aucune île détectée.</p>
+        ) : (
+          displayState.islandHistoryFormatted.map((island) => (
+            <div key={island.id} style={logCard}>
+              🏝 {island.name}
+              <div>{island.time}</div>
+              {Array.isArray(island.coords) &&
+                island.coords.map((c, i) => (
+                  <div key={i} style={{ fontSize: "12px", color: "#aaa" }}>
+                    ({c.x}, {c.y})
+                  </div>
+                ))}
+            </div>
+          ))
+        )}
       </aside>
     </div>
   );
