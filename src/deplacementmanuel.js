@@ -1,5 +1,6 @@
 import readline from 'readline';
 import { apiPost } from './api.js';
+import { saveCells } from './db.js'; // 1. AJOUT : On importe la fonction de base de données
 
 // Configuration du clavier
 readline.emitKeypressEvents(process.stdin);
@@ -19,7 +20,7 @@ process.stdin.on('keypress', async (str, key) => {
 
     if (move && !isMoving) {
         isMoving = true;
-        console.log(`\nDéplacement vers le ${move}...`);
+        console.log(`\nDeplacement vers le ${move}...`);
         
         try {
             // Utilisation de l'endpoint correct
@@ -31,23 +32,28 @@ process.stdin.on('keypress', async (str, key) => {
             const energy = response.energy;
             const cells = response.discoveredCells || [];
 
-            console.log(`✅ Succès ! Nouvelle position : [${posX}, ${posY}]`);
-            console.log(`⚡ Énergie restante : ${energy}`);
+            console.log(`Succes ! Nouvelle position : [${posX}, ${posY}]`);
+            console.log(`Energie restante : ${energy}`);
+
+            // 2. AJOUT : Sauvegarde des cellules vues dans Supabase
+            if (cells.length > 0) {
+                await saveCells(cells);
+            }
 
             // Analyse de la visibilité (discoveredCells)
             const islands = cells.filter(cell => cell.type === 'SAND');
             if (islands.length > 0) {
-                console.log("\x1b[33m%s\x1b[0m", `🏝️  ÎLE DÉTECTÉE ! Proximité : ${islands.length} case(s) de sable visible(s).`);
+                console.log("\x1b[33m%s\x1b[0m", `ILE DETECTEE ! Proximite : ${islands.length} case(s) de sable visible(s).`);
             }
 
             // Alerte sécurité Guide 3026
             if (energy < 5) {
-                console.log("\x1b[31m%s\x1b[0m", "⚠️ DANGER : Énergie critique ! Revenez vers une île connue.");
+                console.log("\x1b[31m%s\x1b[0m", "DANGER : Energie critique ! Revenez vers une ile connue.");
             }
 
         } catch (err) {
             const status = err.response ? err.response.status : 'Inconnu';
-            console.error(`❌ Erreur ${status} : Déplacement impossible.`);
+            console.error(`Erreur ${status} : Deplacement impossible.`);
         } finally {
             isMoving = false;
         }
