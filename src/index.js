@@ -1,17 +1,14 @@
-import { apiGet } from "./api.js";
+import { moveAndStore } from "./backend/game/moveAndStore.js";
+import { saveMapShot } from "./backend/storage/saveMapShot.js";
 
 async function main() {
   try {
-    console.log("Récupération des infos joueur...");
-
-    const data = await apiGet("/players/details");
-
-    console.log("Player details:", data);
-
+    await moveAndStore("N");
+    const path = saveMapShot();
+    console.log("SAVE OK:", path);
   } catch (error) {
-    console.error("Erreur :", error.message);
+    console.error("TEST SAVE KO:", error.message);
   }
 }
-
 
 main();
