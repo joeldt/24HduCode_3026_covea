@@ -1,13 +1,21 @@
-import { moveAndStore } from "./backend/game/moveAndStore.js";
-import { saveMapShot } from "./backend/storage/saveMapShot.js";
+import 'dotenv/config'; 
+import { apiGet } from "./api.js";
+import { startBroker } from "./broker.js";
 
 async function main() {
   try {
-    await moveAndStore("N");
-    const path = saveMapShot();
-    console.log("SAVE OK:", path);
+    console.log("Recuperation des infos joueur...");
+
+    // 1. On recupere les details du joueur via l'API
+    const data = await apiGet("/players/details");
+    console.log("Player details:", data);
+
+    // 2. On lance l'ecoute de la file d'attente 
+    console.log("\nLancement de la connexion au broker...");
+    await startBroker();
+
   } catch (error) {
-    console.error("TEST SAVE KO:", error.message);
+    console.error("Erreur :", error.message);
   }
 }
 
