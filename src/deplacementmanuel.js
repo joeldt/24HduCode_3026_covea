@@ -38,6 +38,26 @@ process.stdin.on('keypress', async (str, key) => {
             // 2. AJOUT : Sauvegarde des cellules vues dans Supabase
             if (cells.length > 0) {
                 await saveCells(cells);
+
+                // --- PARTIE RADAR INTÉGRÉE ---
+                console.log("\x1b[36m%s\x1b[0m", "--- RAPPORT DU RADAR ---");
+                const islandsDetected = cells.filter(cell => cell.type === 'SAND');
+                const otherShips = cells.filter(cell => cell.ships && cell.ships.length > 0);
+
+                if (islandsDetected.length > 0) {
+                    console.log(`🏝️  ${islandsDetected.length} morceau(x) d'île détecté(s) aux coordonnées :`);
+                    islandsDetected.forEach(tile => {
+                        console.log(`   -> [X: ${tile.x}, Y: ${tile.y}]`);
+                    });
+                } else {
+                    console.log("🌊 Rien que de l'eau à l'horizon...");
+                }
+
+                if (otherShips.length > 0) {
+                    console.log(`🚢 Attention : Autre(s) navire(s) repéré(s) !`);
+                }
+                console.log("------------------------");
+                // -----------------------------
             }
 
             // Analyse de la visibilité (discoveredCells)
@@ -46,7 +66,7 @@ process.stdin.on('keypress', async (str, key) => {
                 console.log("\x1b[33m%s\x1b[0m", `ILE DETECTEE ! Proximite : ${islands.length} case(s) de sable visible(s).`);
             }
 
-            // Alerte sécurité Guide 3026
+            // Alerte sécurité Guide 3026 [cite: 538, 540]
             if (energy < 5) {
                 console.log("\x1b[31m%s\x1b[0m", "DANGER : Energie critique ! Revenez vers une ile connue.");
             }
