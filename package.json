@@ -24,6 +24,7 @@
   },
   "homepage": "https://github.com/joeldt/24HduCode_3026_covea#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.3",
     "amqplib": "^0.10.9",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
