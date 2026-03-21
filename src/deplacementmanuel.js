@@ -2,6 +2,7 @@ import readline from 'readline';
 import { apiPost } from './api.js';
 import { saveCells } from './db.js'; // 1. AJOUT : On importe la fonction de base de données
 
+
 // Configuration du clavier
 readline.emitKeypressEvents(process.stdin);
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
