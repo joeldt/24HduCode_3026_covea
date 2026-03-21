@@ -5,7 +5,7 @@ export async function apiGet(path) {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
-      ...(TOKEN ? { "codinggame-id": TOKEN } : {})
+      "codinggame-id": TOKEN
     }
   });
 

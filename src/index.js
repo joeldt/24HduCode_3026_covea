@@ -1,13 +1,17 @@
-import { signupAndRegister } from "./register.js";
+import { apiGet } from "./api.js";
 
 async function main() {
   try {
-    const result = await signupAndRegister();
-    console.log("Inscription réussie !");
-    console.log(result);
+    console.log("Récupération des infos joueur...");
+
+    const data = await apiGet("/players/details");
+
+    console.log("Player details:", data);
+
   } catch (error) {
     console.error("Erreur :", error.message);
   }
 }
+
 
 main();
