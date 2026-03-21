@@ -1,0 +1,72 @@
+{
+  "savedAt": "2026-03-21T13:36:24.941Z",
+  "map": {
+    "1,4": {
+      "id": "54d51c49-a500-4a6f-aa07-cc579b362085",
+      "x": 1,
+      "y": 4,
+      "type": "SEA",
+      "zone": 1,
+      "ships": []
+    },
+    "2,3": {
+      "id": "423f824d-a879-4c8a-af89-165d82e39748",
+      "x": 2,
+      "y": 3,
+      "type": "SEA",
+      "zone": 1,
+      "ships": []
+    },
+    "2,4": {
+      "id": "075b2b35-4705-432e-97e1-52424a47147f",
+      "x": 2,
+      "y": 4,
+      "type": "SEA",
+      "zone": 1,
+      "ships": []
+    },
+    "2,5": {
+      "id": "4aa96893-0da2-4765-9c2f-7889b5c269e7",
+      "x": 2,
+      "y": 5,
+      "type": "SEA",
+      "zone": 1,
+      "ships": []
+    },
+    "3,4": {
+      "id": "e444e7f6-276f-4236-bc23-cde80ecfbfa0",
+      "x": 3,
+      "y": 4,
+      "type": "SEA",
+      "zone": 1,
+      "ships": []
+    }
+  },
+  "runtime": {
+    "currentPosition": {
+      "id": "075b2b35-4705-432e-97e1-52424a47147f",
+      "x": 2,
+      "y": 4,
+      "type": "SEA",
+      "zone": 1,
+      "ships": []
+    },
+    "currentEnergy": 12,
+    "moveHistory": [
+      {
+        "direction": "N",
+        "position": {
+          "id": "075b2b35-4705-432e-97e1-52424a47147f",
+          "x": 2,
+          "y": 4,
+          "type": "SEA",
+          "zone": 1,
+          "ships": []
+        },
+        "energy": 12,
+        "discoveredCount": 5,
+        "timestamp": "2026-03-21T13:36:24.937Z"
+      }
+    ]
+  }
+}
