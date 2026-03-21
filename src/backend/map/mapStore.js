@@ -1,41 +1,48 @@
 const mapData = new Map();
 
-function getCellKey(x, y) {
+function getKey(x, y) {
   return `${x},${y}`;
 }
 
 export function setCell(cell) {
-  const key = getCellKey(cell.x, cell.y);
+  const key = getKey(cell.x, cell.y);
   mapData.set(key, {
     ...mapData.get(key),
     ...cell
   });
 }
 
-export function getCell(x, y) {
-  return mapData.get(getCellKey(x, y)) || null;
-}
-
-export function hasCell(x, y) {
-  return mapData.has(getCellKey(x, y));
+export function mergeCells(cells = []) {
+  for (const cell of cells) {
+    if (
+      cell &&
+      typeof cell.x === "number" &&
+      typeof cell.y === "number" &&
+      cell.type
+    ) {
+      setCell(cell);
+    }
+  }
 }
 
 export function getAllCells() {
   return Array.from(mapData.values());
 }
 
-export function getMapAsObject() {
-  return Object.fromEntries(mapData.entries());
-}
+export function getMapBounds() {
+  const cells = getAllCells();
 
-export function loadMapFromObject(obj = {}) {
-  mapData.clear();
-
-  for (const [key, value] of Object.entries(obj)) {
-    mapData.set(key, value);
+  if (cells.length === 0) {
+    return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
   }
-}
 
-export function clearMap() {
-  mapData.clear();
+  const xs = cells.map((c) => c.x);
+  const ys = cells.map((c) => c.y);
+
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys)
+  };
 }

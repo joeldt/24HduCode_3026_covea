@@ -1,30 +1,35 @@
-import { moveShip } from "../ship/shipService.js";
-import { mergeDiscoveredCells } from "../map/mapMerge.js";
-import { setCell } from "../map/mapStore.js";
+import { moveManually } from "../deplacement/deplacementmanuel.js";
+import { mergeCells, setCell, getAllCells, getMapBounds } from "../map/mapStore.js";
 
-const gameRuntimeState = {
-  currentPosition: null,
-  currentEnergy: null,
-  moveHistory: []
+const runtimeState = {
+  position: null,
+  energy: null,
+  history: []
 };
 
 export async function moveAndStore(direction) {
-  const response = await moveShip(direction);
+  const result = await moveManually(direction);
+
+  if (!result.success) {
+    return result;
+  }
+
+  const response = result.data;
 
   if (Array.isArray(response.discoveredCells)) {
-    mergeDiscoveredCells(response.discoveredCells);
+    mergeCells(response.discoveredCells);
   }
 
   if (response.position) {
     setCell(response.position);
-    gameRuntimeState.currentPosition = response.position;
+    runtimeState.position = response.position;
   }
 
   if (typeof response.energy === "number") {
-    gameRuntimeState.currentEnergy = response.energy;
+    runtimeState.energy = response.energy;
   }
 
-  gameRuntimeState.moveHistory.push({
+  runtimeState.history.push({
     direction,
     position: response.position || null,
     energy: response.energy ?? null,
@@ -33,13 +38,23 @@ export async function moveAndStore(direction) {
   });
 
   return {
-    position: gameRuntimeState.currentPosition,
-    energy: gameRuntimeState.currentEnergy,
-    discoveredCells: response.discoveredCells || [],
-    moveHistory: gameRuntimeState.moveHistory
+    success: true,
+    data: {
+      position: runtimeState.position,
+      energy: runtimeState.energy,
+      knownCells: getAllCells(),
+      bounds: getMapBounds(),
+      history: runtimeState.history
+    }
   };
 }
 
 export function getRuntimeState() {
-  return gameRuntimeState;
+  return {
+    position: runtimeState.position,
+    energy: runtimeState.energy,
+    history: runtimeState.history,
+    knownCells: getAllCells(),
+    bounds: getMapBounds()
+  };
 }

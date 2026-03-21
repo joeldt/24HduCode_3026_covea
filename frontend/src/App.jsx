@@ -1,75 +1,79 @@
 import { useEffect, useState } from "react";
-import { getState, moveBoat } from "./services/gameApi";
-import MapGrid from "./components/MapGrid";
-import Controls from "./components/Controls";
-import StatsPanel from "./components/StatsPanel";
-import HistoryPanel from "./components/HistoryPanel";
-
-export default function App() {
-  const [state, setState] = useState({
-    boat: { x: 0, y: 0, energy: 0 },
-    cells: [],
-    player: null,
-    history: []
-  });
-
-  const [loading, setLoading] = useState(false);
+import { fetchPlayer, fetchState, moveBoat, upgradeStorage } from "../services/gameApi.js";
+function App() {
+  const [player, setPlayer] = useState(null);
+  const [state, setState] = useState(null);
   const [error, setError] = useState("");
 
-  async function loadState() {
+  async function loadInitialData() {
     try {
-      setLoading(true);
       setError("");
-      const newState = await getState();
-      setState(newState);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
-  async function handleMove(direction) {
-    try {
-      setLoading(true);
-      setError("");
-      const newState = await moveBoat(direction);
-      setState(newState);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
+      const playerRes = await fetchPlayer();
+      const stateRes = await fetchState();
+
+      setPlayer(playerRes.data);
+      setState(stateRes.data);
+    } catch (err) {
+      setError(err.message);
     }
   }
 
   useEffect(() => {
-    loadState();
+    const init = async () => {
+      await loadInitialData();
+    };
+
+    init();
   }, []);
 
+  async function handleMove(direction) {
+    try {
+      setError("");
+      const result = await moveBoat(direction);
+      setState(result.data);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleUpgradeStorage() {
+    try {
+      setError("");
+      const result = await upgradeStorage();
+      console.log("Upgrade storage:", result);
+      await loadInitialData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
-    <div className="page">
-      <aside className="sidebar">
-        <h1>3026 - Cartographie</h1>
+    <div style={{ padding: "20px" }}>
+      <h1>3026 Dashboard</h1>
 
-        <StatsPanel state={state} />
-        <Controls onMove={handleMove} loading={loading} />
-        <HistoryPanel history={state.history} />
+      {error && <p style={{ color: "red" }}>{error}</p>}
 
-        {loading && <p>Chargement...</p>}
-        {error && <p className="error">{error}</p>}
-      </aside>
+      <h2>Joueur</h2>
+      <pre>{JSON.stringify(player, null, 2)}</pre>
 
-      <main className="map-wrapper">
-        <div className="legend">
-          <span><i className="legend-box sea" /> Mer</span>
-          <span><i className="legend-box sand" /> Sable</span>
-          <span><i className="legend-box rocks" /> Rochers</span>
-          <span><i className="legend-box boat" /> Bateau</span>
-          <span><i className="legend-box unknown" /> Inconnu</span>
-        </div>
+      <h2>État</h2>
+      <pre>{JSON.stringify(state, null, 2)}</pre>
 
-        <MapGrid boat={state.boat} cells={state.cells} />
-      </main>
+      <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
+        <button onClick={() => handleMove("N")}>N</button>
+        <button onClick={() => handleMove("S")}>S</button>
+        <button onClick={() => handleMove("E")}>E</button>
+        <button onClick={() => handleMove("W")}>W</button>
+      </div>
+
+      <div style={{ marginTop: "20px" }}>
+        <button onClick={handleUpgradeStorage}>
+          Améliorer l'entrepôt
+        </button>
+      </div>
     </div>
   );
 }
+
+export default App;
