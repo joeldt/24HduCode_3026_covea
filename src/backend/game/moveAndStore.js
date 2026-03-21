@@ -1,53 +1,97 @@
-import { moveShip } from "../ship/shipService.js";
-import { mergeDiscoveredCells } from "../map/mapMerge.js";
-import { mapStore } from "../map/mapStore.js"; 
+import { moveManually } from "../deplacement/deplacementmanuel.js";
+import { mergeCells, setCell, getAllCells, getMapBounds } from "../map/mapStore.js";
 
-// On garde l'historique ici pour le suivi du run actuel
-const moveHistory = [];
+const runtimeState = {
+  position: null,
+  energy: null,
+  history: [],
+  radarHistory: [],
+  islandDetectionHistory: []
+};
 
 export async function moveAndStore(direction) {
-  // 1. Appel au service de mouvement (API)
-  const response = await moveShip(direction);
+  const result = await moveManually(direction);
 
-  // 2. Mise à jour de la carte dans le Store Global
-  if (Array.isArray(response.discoveredCells)) {
-    mergeDiscoveredCells(response.discoveredCells);
+  if (!result.success) {
+    return result;
   }
 
-  // 3. Mise à jour du bateau (Position + Énergie) dans le Store Global
-  if (response.position) {
-    mapStore.updateShip(response.position, response.energy);
+  const payload = result.data || {};
+  const raw = payload.raw || {};
+  const discoveredCells = payload.discoveredCells || [];
+  const position = raw.position || null;
+  const energy =
+    typeof raw.energy === "number"
+      ? raw.energy
+      : payload.energy ?? null;
+  const radarReport = payload.radarReport || null;
+
+  if (discoveredCells.length > 0) {
+    mergeCells(discoveredCells);
   }
 
-  // 4. Archivage dans l'historique local
-  const historyEntry = {
+  if (position) {
+    setCell(position);
+    runtimeState.position = position;
+  }
+
+  if (energy !== null) {
+    runtimeState.energy = energy;
+  }
+
+  const moveEntry = {
     direction,
-    position: response.position || null,
-    energy: response.energy ?? null,
-    discoveredCount: response.discoveredCells?.length || 0,
-    timestamp: new Date().toISOString()
+    position: runtimeState.position,
+    energy: runtimeState.energy,
+    discoveredCount: discoveredCells.length,
+    timestamp: new Date().toISOString(),
+    radarReport
   };
-  moveHistory.push(historyEntry);
 
-  // 5. Retourne un objet complet pour le Front
+  runtimeState.history.push(moveEntry);
+
+  if (radarReport) {
+    runtimeState.radarHistory.push({
+      timestamp: moveEntry.timestamp,
+      ...radarReport
+    });
+
+    if (radarReport.islandsDetectedCount > 0) {
+      runtimeState.islandDetectionHistory.push({
+        timestamp: moveEntry.timestamp,
+        position: runtimeState.position,
+        tiles: radarReport.islandsDetectedTiles
+      });
+    }
+  }
+
   return {
     success: true,
-    position: mapStore.ship,
-    energy: mapStore.ship.energy,
-    discoveredCells: response.discoveredCells || [],
-    moveHistory: moveHistory
+    data: {
+      position: runtimeState.position,
+      energy: runtimeState.energy,
+      knownCells: getAllCells(),
+      bounds: getMapBounds(),
+      history: runtimeState.history,
+      radarHistory: runtimeState.radarHistory,
+      islandDetectionHistory: runtimeState.islandDetectionHistory,
+      lastRadarReport: radarReport
+    }
   };
-}
-
-// Fonctions utilitaires pour le Presenter
-export function getMoveHistory() {
-  return moveHistory;
 }
 
 export function getRuntimeState() {
   return {
-    moveHistory: moveHistory || [],
-    currentPosition: mapStore.ship,
-    currentEnergy: mapStore.ship.energy
+    position: runtimeState.position,
+    energy: runtimeState.energy,
+    history: runtimeState.history,
+    knownCells: getAllCells(),
+    bounds: getMapBounds(),
+    radarHistory: runtimeState.radarHistory,
+    islandDetectionHistory: runtimeState.islandDetectionHistory,
+    lastRadarReport:
+      runtimeState.radarHistory.length > 0
+        ? runtimeState.radarHistory[runtimeState.radarHistory.length - 1]
+        : null
   };
 }

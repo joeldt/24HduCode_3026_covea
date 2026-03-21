@@ -1,55 +1,31 @@
-const API_BASE_URL = "http://localhost:3001/api";
+const API_BASE_URL = "/api";
 
-export async function fetchPlayer() {
-  const res = await fetch(`${API_BASE_URL}/player`);
-  const data = await res.json();
-
-  if (!res.ok) {
-    throw new Error(data.error || "Erreur récupération joueur");
-  }
-
-  return data;
-}
-
-export async function fetchState() {
-  const res = await fetch(`${API_BASE_URL}/state`);
-  const data = await res.json();
-
-  if (!res.ok) {
-    throw new Error(data.error || "Erreur récupération état");
-  }
-
-  return data;
-}
-
-export async function moveBoat(direction) {
-  const res = await fetch(`${API_BASE_URL}/move`, {
+async function postJson(path, body = {}) {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ direction })
+    body: JSON.stringify(body)
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(data.error || "Erreur déplacement");
+    throw new Error(data.error || `Erreur ${path}`);
   }
 
   return data;
 }
 
+export async function bootstrapGame() {
+  return await postJson("/bootstrap", {});
+}
+
+export async function moveBoat(direction) {
+  return await postJson("/move", { direction });
+}
+
 export async function upgradeStorage() {
-  const res = await fetch(`${API_BASE_URL}/storage/upgrade`, {
-    method: "POST"
-  });
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    throw new Error(data.error || "Erreur amélioration entrepôt");
-  }
-
-  return data;
+  return await postJson("/storage/upgrade", {});
 }
