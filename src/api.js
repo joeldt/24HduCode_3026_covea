@@ -37,3 +37,20 @@ export async function apiPost(path, body = {}, extraHeaders = {}) {
 
   return data;
 }
+
+export async function apiPut(path, body = {}) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "codinggame-id": TOKEN
+    },
+    body: JSON.stringify(body)
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`PUT ${path} failed: ${res.status} ${JSON.stringify(data)}`);
+  }
+  return data;
+}
