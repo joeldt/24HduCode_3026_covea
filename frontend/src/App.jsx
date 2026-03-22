@@ -23,6 +23,7 @@ function App() {
   const [player, setPlayer] = useState(null);
   const [runtimeState, setRuntimeState] = useState(null);
   const [offers, setOffers] = useState([]);
+  const [myOffers, setMyOffers] = useState([]);
   const [error, setError] = useState("");
   const [loadingMove, setLoadingMove] = useState(false);
 
@@ -37,11 +38,19 @@ function App() {
     quantity: 1
   });
 
+  const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
+  const [autoTradeStatus, setAutoTradeStatus] = useState("Inactif");
+
   const hasLoadedRef = useRef(false);
   const marketCacheRef = useRef({
     data: [],
     lastFetch: 0,
     cooldown: 4000
+  });
+
+  const autoTradeRef = useRef({
+    lastRun: 0,
+    cooldown: 25000
   });
 
   async function getSafeMarketplaceOffers(force = false) {
@@ -64,10 +73,189 @@ function App() {
       return { data: safeData };
     } catch (err) {
       console.warn("Marketplace rate limit -> fallback cache", err);
-
       marketCacheRef.current.cooldown = 8000;
-
       return { data: marketCacheRef.current.data };
+    }
+  }
+
+  function getResourceQuantity(type) {
+    const resources = Array.isArray(player?.resources) ? player.resources : [];
+    const found = resources.find((r) => r.type === type);
+    return found?.quantity ?? 0;
+  }
+
+  function chooseAutoSellResource() {
+    const boisium = getResourceQuantity("BOISIUM");
+    const feronium = getResourceQuantity("FERONIUM");
+    const charbonium = getResourceQuantity("CHARBONIUM");
+
+    const stock = [
+      { type: "BOISIUM", quantity: boisium, minKeep: 1500, sellPack: 300, price: 2 },
+      { type: "FERONIUM", quantity: feronium, minKeep: 3000, sellPack: 500, price: 5 },
+      { type: "CHARBONIUM", quantity: charbonium, minKeep: 1200, sellPack: 250, price: 4 }
+    ];
+
+    const candidates = stock
+      .filter((r) => r.quantity > r.minKeep + r.sellPack)
+      .sort((a, b) => b.quantity - a.quantity);
+
+    return candidates[0] || null;
+  }
+
+  function chooseAutoBuyOffer() {
+    const safeOffers = Array.isArray(offers) ? offers : [];
+
+    const boisium = getResourceQuantity("BOISIUM");
+    const feronium = getResourceQuantity("FERONIUM");
+    const charbonium = getResourceQuantity("CHARBONIUM");
+
+    const targets = [
+      { type: "BOISIUM", quantity: boisium, minNeed: 1000, maxPrice: 4 },
+      { type: "FERONIUM", quantity: feronium, minNeed: 2500, maxPrice: 8 },
+      { type: "CHARBONIUM", quantity: charbonium, minNeed: 800, maxPrice: 6 }
+    ];
+
+    const missing = targets.find((t) => t.quantity < t.minNeed);
+    if (!missing) return null;
+
+    const matchingOffers = safeOffers
+      .filter((offer) => {
+        const type = offer.resourceType || offer.type;
+        const price = Number(offer.pricePerResource || offer.price || 999999);
+        const qty = Number(offer.quantityIn || offer.quantity || 0);
+        const seller = offer.owner?.name || offer.seller?.name || "";
+
+        return (
+          type === missing.type &&
+          price <= missing.maxPrice &&
+          qty > 0 &&
+          seller !== (player?.name || "")
+        );
+      })
+      .sort((a, b) => {
+        const pa = Number(a.pricePerResource || a.price || 999999);
+        const pb = Number(b.pricePerResource || b.price || 999999);
+
+        if (pa !== pb) return pa - pb;
+
+        const qa = Number(a.quantityIn || a.quantity || 0);
+        const qb = Number(b.quantityIn || b.quantity || 0);
+
+        return qa - qb;
+      });
+
+    return matchingOffers[0] || null;
+  }
+
+  function findMyExistingOffer(resourceType) {
+    const safeOffers = Array.isArray(offers) ? offers : [];
+
+    return safeOffers.find((offer) => {
+      const seller = offer.owner?.name || offer.seller?.name || "";
+      const type = offer.resourceType || offer.type || "";
+      const qty = Number(offer.quantityIn || offer.quantity || 0);
+
+      return seller === (player?.name || "") && type === resourceType && qty > 0;
+    });
+  }
+
+  async function runAutoTrade() {
+    const now = Date.now();
+
+    if (now - autoTradeRef.current.lastRun < autoTradeRef.current.cooldown) {
+      return;
+    }
+
+    autoTradeRef.current.lastRun = now;
+
+    try {
+      setAutoTradeStatus("Analyse des ressources...");
+
+      const resourceToSell = chooseAutoSellResource();
+
+      if (resourceToSell) {
+        const existingOffer = findMyExistingOffer(resourceToSell.type);
+
+        if (existingOffer) {
+          setAutoTradeStatus(
+            `Vente déjà en cours: ${resourceToSell.type} (#${existingOffer.id || "-"})`
+          );
+          return;
+        }
+
+        setAutoTradeStatus(`Vente auto: ${resourceToSell.type}`);
+
+        if (!resourceToSell.type || !resourceToSell.sellPack || !resourceToSell.price) {
+          setAutoTradeStatus("Erreur auto-trade: vente invalide");
+          return;
+        }
+
+        const created = await createMarketplaceOffer({
+          resourceType: resourceToSell.type,
+          quantityIn: resourceToSell.sellPack,
+          pricePerResource: resourceToSell.price
+        });
+
+        const createdData = created?.data ?? created ?? null;
+        if (createdData) {
+          setMyOffers((prev) => [createdData, ...prev]);
+        }
+
+        const market = await getSafeMarketplaceOffers(true);
+        setOffers(Array.isArray(market?.data) ? market.data : []);
+
+        await loadInitialData();
+        setAutoTradeStatus(`Offre publiée: ${resourceToSell.type}`);
+        return;
+      }
+
+      const offerToBuy = chooseAutoBuyOffer();
+
+      if (offerToBuy) {
+        const offerId = offerToBuy.id;
+        const availableQty = Number(offerToBuy.quantityIn || offerToBuy.quantity || 0);
+        const price = Number(offerToBuy.pricePerResource || offerToBuy.price || 999999);
+
+        let quantity = 0;
+
+        if (price <= 2) {
+          quantity = Math.min(availableQty, 100);
+        } else if (price <= 4) {
+          quantity = Math.min(availableQty, 50);
+        } else if (price <= 6) {
+          quantity = Math.min(availableQty, 25);
+        } else {
+          quantity = Math.min(availableQty, 10);
+        }
+
+        if (!offerId || quantity <= 0) {
+          setAutoTradeStatus("Erreur auto-trade: achat invalide");
+          return;
+        }
+
+        setAutoTradeStatus(
+          `Achat auto: ${offerToBuy.resourceType || offerToBuy.type} x${quantity}`
+        );
+
+        await createMarketplacePurchase({
+          offerId,
+          quantity
+        });
+
+        const market = await getSafeMarketplaceOffers(true);
+        setOffers(Array.isArray(market?.data) ? market.data : []);
+
+        await loadInitialData();
+        setAutoTradeStatus(
+          `Achat effectué: ${offerToBuy.resourceType || offerToBuy.type} x${quantity}`
+        );
+        return;
+      }
+
+      setAutoTradeStatus("Aucune action nécessaire");
+    } catch (err) {
+      console.error("Erreur auto trade :", err);
+      setAutoTradeStatus(`Erreur auto-trade: ${err.message}`);
     }
   }
 
@@ -86,12 +274,12 @@ function App() {
             type: c.type
           }))
         : Array.isArray(map)
-        ? map.map((c) => ({
-            x: c.x,
-            y: c.y,
-            type: c.type
-          }))
-        : [];
+          ? map.map((c) => ({
+              x: c.x,
+              y: c.y,
+              type: c.type
+            }))
+          : [];
 
       const playerData = boot?.data?.player ?? boot?.player ?? null;
       const stateData = boot?.data?.state ?? boot?.state ?? {};
@@ -128,6 +316,16 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (!autoTradeEnabled) return;
+
+    const interval = setInterval(() => {
+      runAutoTrade();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [autoTradeEnabled, offers, player]);
+
   async function handleMove(direction) {
     if (loadingMove) return;
 
@@ -143,8 +341,8 @@ function App() {
         const incomingCells = Array.isArray(moveData.knownCells)
           ? moveData.knownCells
           : Array.isArray(moveData.discoveredCells)
-          ? moveData.discoveredCells
-          : [];
+            ? moveData.discoveredCells
+            : [];
 
         return {
           ...(prev || {}),
@@ -153,8 +351,8 @@ function App() {
           history: Array.isArray(moveData.history)
             ? moveData.history
             : Array.isArray(prev?.history)
-            ? prev.history
-            : []
+              ? prev.history
+              : []
         };
       });
     } catch (err) {
@@ -173,16 +371,20 @@ function App() {
     try {
       setError("");
 
-      await createMarketplaceOffer({
+      const created = await createMarketplaceOffer({
         resourceType: offerForm.resourceType,
         quantityIn: Number(offerForm.quantityIn),
         pricePerResource: Number(offerForm.pricePerResource)
       });
 
+      const createdData = created?.data ?? created ?? null;
+      if (createdData) {
+        setMyOffers((prev) => [createdData, ...prev]);
+      }
+
       const market = await getSafeMarketplaceOffers(true);
       setOffers(Array.isArray(market?.data) ? market.data : []);
 
-      // refresh joueur après transaction
       await loadInitialData();
     } catch (err) {
       console.error("Erreur create offer :", err);
@@ -204,7 +406,6 @@ function App() {
       const market = await getSafeMarketplaceOffers(true);
       setOffers(Array.isArray(market?.data) ? market.data : []);
 
-      // refresh joueur après transaction
       await loadInitialData();
     } catch (err) {
       console.error("Erreur purchase :", err);
@@ -232,6 +433,8 @@ function App() {
       coords: { x: cell.x, y: cell.y }
     }));
 
+    const discoveredIslandsCount = detectedIslands.length;
+
     return {
       boat: {
         x: stateData.position?.x ?? 0,
@@ -249,9 +452,11 @@ function App() {
       history,
       discoveredIslands,
       detectedIslands,
-      offers: Array.isArray(offers) ? offers : []
+      discoveredIslandsCount,
+      offers: Array.isArray(offers) ? offers : [],
+      myOffers: Array.isArray(myOffers) ? myOffers : []
     };
-  }, [player, runtimeState, offers]);
+  }, [player, runtimeState, offers, myOffers]);
 
   return (
     <div
@@ -300,6 +505,7 @@ function App() {
           <p>💰 {displayState.player.money}</p>
           <p>⚖️ {displayState.player.quotient}</p>
           <p>🏝 {displayState.player.home}</p>
+          <p>🏝 Îles découvertes : {displayState.discoveredIslandsCount}</p>
 
           <h3 style={{ marginTop: "12px", marginBottom: "8px" }}>Ressources</h3>
 
@@ -347,6 +553,28 @@ function App() {
 
       <aside style={marketPanel}>
         <h2>Transactions Marketplace</h2>
+
+        <section style={card}>
+          <h3>Auto Trade</h3>
+
+          <button
+            onClick={() => setAutoTradeEnabled((prev) => !prev)}
+            style={{
+              ...actionButton,
+              background: autoTradeEnabled ? "#1f8f4e" : "#2f6fed",
+              marginBottom: "10px"
+            }}
+          >
+            {autoTradeEnabled ? "Désactiver auto-trade" : "Activer auto-trade"}
+          </button>
+
+          <p style={{ margin: 0 }}>
+            <strong>Statut :</strong> {autoTradeStatus}
+          </p>
+          <p style={{ marginTop: "6px" }}>
+            <strong>Activé :</strong> {autoTradeEnabled ? "Oui" : "Non"}
+          </p>
+        </section>
 
         <section style={card}>
           <h3>Créer une offre</h3>
@@ -419,6 +647,22 @@ function App() {
         </section>
 
         <section style={card}>
+          <h3>Mes offres</h3>
+          {displayState.myOffers.length === 0 ? (
+            <p>Aucune offre créée.</p>
+          ) : (
+            displayState.myOffers.map((offer, index) => (
+              <div key={offer.id || `mine-${index}`} style={logCard}>
+                <div><strong>ID :</strong> {offer.id || "-"}</div>
+                <div><strong>Ressource :</strong> {offer.resourceType || offer.type || "-"}</div>
+                <div><strong>Quantité :</strong> {offer.quantityIn || offer.quantity || "-"}</div>
+                <div><strong>Prix :</strong> {offer.pricePerResource || offer.price || "-"}</div>
+              </div>
+            ))
+          )}
+        </section>
+
+        <section style={card}>
           <h3>Offres en cours</h3>
           {displayState.offers.length === 0 ? (
             <p>Aucune offre.</p>
@@ -469,7 +713,7 @@ function App() {
               <strong>🏝 {entry.island?.name || "Île inconnue"}</strong>
               <div>État : {entry.islandState || "-"}</div>
               <div>Bonus : {entry.island?.bonusQuotient ?? 0}</div>
-              {entry.island?.x !== undefined && entry.island?.y !==undefined &&(
+              {entry.island?.x !== undefined && entry.island?.y !== undefined && (
                 <div>
                   ({entry.island.x},{entry.island.y})
                 </div>
@@ -489,7 +733,7 @@ function App() {
               <div>
                 📍Coordonnées : ({island.coords.x}, {island.coords.y})
               </div>
-              <div style={{fontSize : "12px",color:"#aaa",marginTop:"4px"}}>
+              <div style={{ fontSize: "12px", color: "#aaa", marginTop: "4px" }}>
                 X={island.coords.x} | Y={island.coords.y}
               </div>
             </div>
@@ -561,7 +805,7 @@ const actionButton = {
 };
 
 function MapGrid({ knownCells, boatX, boatY }) {
-  const size = 25;
+  const size = 95;
   const cellSize = 20;
 
   const cellMap = new Map();

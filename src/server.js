@@ -7,6 +7,32 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+async function getAllMapCells() {
+  let allRows = [];
+  let from = 0;
+  const pageSize = 1000;
+  let keepGoing = true;
+
+  while (keepGoing) {
+    const { data, error } = await supabase
+      .from("map_cells")
+      .select("*")
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+
+    const rows = data || [];
+    allRows = allRows.concat(rows);
+
+    if (rows.length < pageSize) {
+      keepGoing = false;
+    } else {
+      from += pageSize;
+    }
+  }
+
+  return allRows;
+}
 const supabase = createClient(
   "https://aqrpqnabkuphpwrieaea.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFxcnBxbmFia3VwaHB3cmllYWVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMDAzMDAsImV4cCI6MjA4OTY3NjMwMH0.0JOm0DvZpDMO8bVJfQPIsXeByJRchq1Wf2D1_TK4-MU"
@@ -17,24 +43,21 @@ let gameState = {
   energy: 20,
   history: []
 };
-
 app.post("/api/bootstrap", async (req, res) => {
   try {
-    const { data, error } = await supabase.from("map_cells").select("*");
-    if (error) throw error;
+    const data = await getAllMapCells();
 
     const playerDetails = await apiGet("/players/details").catch(() => null);
 
     res.json({
       data: {
-        player:
-          playerDetails || {
-            name: "WANDA237",
-            money: 500,
-            quotient: 300,
-            home: { name: "Ohara" },
-            discoveredIslands: []
-          },
+        player: playerDetails || {
+          name: "WANDA237",
+          money: 500,
+          quotient: 300,
+          home: { name: "Ohara" },
+          discoveredIslands: []
+        },
         state: {
           ...gameState,
           knownCells: data || []
@@ -42,20 +65,42 @@ app.post("/api/bootstrap", async (req, res) => {
       }
     });
   } catch (err) {
+    console.error("BOOTSTRAP ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
 app.get("/api/map", async (req, res) => {
   try {
-    const { data, error } = await supabase.from("map_cells").select("*");
-    if (error) throw error;
-    res.json(data || []);
+    let allRows = [];
+    let from = 0;
+    const pageSize = 1000;
+    let keepGoing = true;
+
+    while (keepGoing) {
+      const { data, error } = await supabase
+        .from("map_cells")
+        .select("*")
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+
+      const rows = data || [];
+      allRows = allRows.concat(rows);
+
+      if (rows.length < pageSize) {
+        keepGoing = false;
+      } else {
+        from += pageSize;
+      }
+    }
+
+    res.json(allRows);
   } catch (err) {
+    console.error("MAP ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
 app.post("/api/move", async (req, res) => {
   const { direction } = req.body;
 
