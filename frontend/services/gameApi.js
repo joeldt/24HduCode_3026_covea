@@ -1,31 +1,49 @@
-const API_BASE_URL = "/api";
+const API = "/api";
 
-async function postJson(path, body = {}) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
+async function request(url, options = {}) {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options
   });
 
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    throw new Error(data.error || `Erreur ${path}`);
+    throw new Error(data.error || `Erreur ${url}`);
   }
 
   return data;
 }
 
-export async function bootstrapGame() {
-  return await postJson("/bootstrap", {});
+export function bootstrapGame() {
+  return request("/api/bootstrap", { method: "POST" });
 }
 
-export async function moveBoat(direction) {
-  return await postJson("/move", { direction });
+export function moveBoat(direction) {
+  return request("/api/move", {
+    method: "POST",
+    body: JSON.stringify({ direction })
+  });
 }
 
-export async function upgradeStorage() {
-  return await postJson("/storage/upgrade", {});
+export function getMap() {
+  return request("/api/map");
+}
+
+export function getMarketplaceOffers() {
+  return request("/api/marketplace/offers");
+}
+
+export function createMarketplaceOffer(payload) {
+  return request("/api/marketplace/offers", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function createMarketplacePurchase(payload) {
+  return request("/api/marketplace/purchases", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
