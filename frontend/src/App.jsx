@@ -19,6 +19,75 @@ function mergeKnownCells(oldCells = [], newCells = []) {
   return Array.from(merged.values());
 }
 
+function analyzeStrategicZones(knownCells = [], boat = { x: 0, y: 0 }) {
+  const cells = Array.isArray(knownCells) ? knownCells : [];
+
+  const sandCells = cells.filter((c) => c.type === "SAND");
+  const seaCells = cells.filter((c) => c.type === "SEA");
+  const rocksCells = cells.filter((c) => c.type === "ROCKS");
+
+  const frontierCandidates = [];
+  const knownSet = new Set(cells.map((c) => `${c.x},${c.y}`));
+
+  for (const cell of cells) {
+    const neighbors = [
+      { x: cell.x + 1, y: cell.y },
+      { x: cell.x - 1, y: cell.y },
+      { x: cell.x, y: cell.y + 1 },
+      { x: cell.x, y: cell.y - 1 }
+    ];
+
+    const hasUnknownNeighbor = neighbors.some((n) => !knownSet.has(`${n.x},${n.y}`));
+
+    if (hasUnknownNeighbor) {
+      frontierCandidates.push(cell);
+    }
+  }
+
+  let bestTarget = null;
+  let bestScore = -Infinity;
+
+  for (const cell of frontierCandidates) {
+    const distance = Math.abs(cell.x - boat.x) + Math.abs(cell.y - boat.y);
+    const terrainBonus =
+      cell.type === "SAND" ? 30 : cell.type === "SEA" ? 15 : 0;
+
+    const frontierBonus = 20;
+    const score = terrainBonus + frontierBonus - distance;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestTarget = cell;
+    }
+  }
+
+  const centerSand =
+    sandCells.length > 0
+      ? {
+          x: Math.round(sandCells.reduce((sum, c) => sum + c.x, 0) / sandCells.length),
+          y: Math.round(sandCells.reduce((sum, c) => sum + c.y, 0) / sandCells.length)
+        }
+      : null;
+
+  return {
+    bestTarget,
+    bestScore,
+    frontierCount: frontierCandidates.length,
+    sandCount: sandCells.length,
+    seaCount: seaCells.length,
+    rocksCount: rocksCells.length,
+    centerSand,
+    mode:
+      frontierCandidates.length > 0
+        ? "EXPLORATION INTELLIGENTE"
+        : "OPTIMISATION / CONSOLIDATION",
+    advice:
+      frontierCandidates.length > 0
+        ? "Se diriger vers une frontière pour découvrir de nouvelles zones."
+        : "Explorer autour des îles détectées ou optimiser le trade."
+  };
+}
+
 function App() {
   const [player, setPlayer] = useState(null);
   const [runtimeState, setRuntimeState] = useState(null);
@@ -40,6 +109,9 @@ function App() {
 
   const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
   const [autoTradeStatus, setAutoTradeStatus] = useState("Inactif");
+  const [explorationMode] = useState("SPIRALE");
+  const [brokerStatus] = useState("Actif");
+  const [strategyGoal] = useState("Découvrir de nouvelles zones et optimiser les ressources");
 
   const hasLoadedRef = useRef(false);
   const marketCacheRef = useRef({
@@ -159,6 +231,25 @@ function App() {
     });
   }
 
+  function getMarketStats(type) {
+    const filtered = (Array.isArray(offers) ? offers : []).filter(
+      (o) => (o.resourceType || o.type) === type
+    );
+
+    if (filtered.length === 0) return null;
+
+    const prices = filtered.map((o) => Number(o.pricePerResource || o.price || 0)).filter(Boolean);
+
+    if (prices.length === 0) return null;
+
+    return {
+      min: Math.min(...prices),
+      max: Math.max(...prices),
+      avg: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length),
+      count: filtered.length
+    };
+  }
+
   async function runAutoTrade() {
     const now = Date.now();
 
@@ -271,13 +362,17 @@ function App() {
         ? map.data.map((c) => ({
             x: c.x,
             y: c.y,
-            type: c.type
+            type: c.type,
+            island_name: c.island_name || c.islandName || "",
+            islandName: c.islandName || c.island_name || ""
           }))
         : Array.isArray(map)
           ? map.map((c) => ({
               x: c.x,
               y: c.y,
-              type: c.type
+              type: c.type,
+              island_name: c.island_name || c.islandName || "",
+              islandName: c.islandName || c.island_name || ""
             }))
           : [];
 
@@ -338,11 +433,19 @@ function App() {
 
       setRuntimeState((prev) => {
         const previousCells = Array.isArray(prev?.knownCells) ? prev.knownCells : [];
-        const incomingCells = Array.isArray(moveData.knownCells)
+        const incomingRawCells = Array.isArray(moveData.knownCells)
           ? moveData.knownCells
           : Array.isArray(moveData.discoveredCells)
             ? moveData.discoveredCells
             : [];
+
+        const incomingCells = incomingRawCells.map((c) => ({
+          x: c.x,
+          y: c.y,
+          type: c.type,
+          island_name: c.island_name || c.islandName || "",
+          islandName: c.islandName || c.island_name || ""
+        }));
 
         return {
           ...(prev || {}),
@@ -427,6 +530,10 @@ function App() {
       : [];
 
     const sandCells = knownCells.filter((c) => c.type === "SAND");
+    console.log(
+      "SAND COORDS =",
+      sandCells.map((c) => ({ x: c.x, y: c.y }))
+    );
 
     const detectedIslands = sandCells.map((cell, index) => ({
       id: index,
@@ -434,6 +541,15 @@ function App() {
     }));
 
     const discoveredIslandsCount = detectedIslands.length;
+    const totalResources = resources.reduce((sum, r) => sum + Number(r.quantity || 0), 0);
+    const scoreStrategique = Math.round(
+      knownCells.length + discoveredIslandsCount * 40 + Number(playerData.money || 0) / 100
+    );
+
+    const strategyAnalysis = analyzeStrategicZones(knownCells, {
+      x: stateData.position?.x ?? 0,
+      y: stateData.position?.y ?? 0
+    });
 
     return {
       boat: {
@@ -453,37 +569,49 @@ function App() {
       discoveredIslands,
       detectedIslands,
       discoveredIslandsCount,
+      totalResources,
+      scoreStrategique,
+      strategyAnalysis,
       offers: Array.isArray(offers) ? offers : [],
       myOffers: Array.isArray(myOffers) ? myOffers : []
     };
   }, [player, runtimeState, offers, myOffers]);
 
+  const boisiumStats = getMarketStats("BOISIUM");
+  const feroniumStats = getMarketStats("FERONIUM");
+  const charboniumStats = getMarketStats("CHARBONIUM");
+
   return (
     <div
       style={{
         minHeight: "100vh",
-        backgroundColor: "#000",
+        background:
+          "radial-gradient(circle at top, rgba(30,40,70,0.55) 0%, rgba(0,0,0,1) 45%)",
         color: "white",
         padding: "20px",
         display: "grid",
-        gridTemplateColumns: "280px 1fr 340px 320px",
+        gridTemplateColumns: "300px 1fr 360px 340px",
         gap: "20px",
-        fontFamily: "Arial"
+        fontFamily: "Arial, sans-serif"
       }}
     >
       <aside>
-        <h1>3026 - Cartographie</h1>
+        <h1 style={{ marginTop: 0, marginBottom: "18px", lineHeight: 1.05 }}>
+          3026 -<br />
+          Cartographie
+        </h1>
 
         {error && (
           <div
             style={{
               background: "#4a1111",
               color: "#ff6b6b",
-              padding: "10px",
-              marginBottom: "10px",
-              borderRadius: "8px",
+              padding: "12px",
+              marginBottom: "12px",
+              borderRadius: "10px",
               lineHeight: 1.4,
-              wordBreak: "break-word"
+              wordBreak: "break-word",
+              border: "1px solid rgba(255,107,107,0.25)"
             }}
           >
             {error}
@@ -492,9 +620,7 @@ function App() {
 
         <section style={card}>
           <h2>Bateau</h2>
-          <p>
-            Position: ({displayState.boat.x}, {displayState.boat.y})
-          </p>
+          <p>Position: ({displayState.boat.x}, {displayState.boat.y})</p>
           <p>Énergie: {displayState.boat.energy}</p>
           <p>Cases connues: {displayState.knownCells.length}</p>
         </section>
@@ -506,6 +632,8 @@ function App() {
           <p>⚖️ {displayState.player.quotient}</p>
           <p>🏝 {displayState.player.home}</p>
           <p>🏝 Îles découvertes : {displayState.discoveredIslandsCount}</p>
+          <p>📦 Ressources totales : {displayState.totalResources}</p>
+          <p>🏆 Score stratégique : {displayState.scoreStrategique}</p>
 
           <h3 style={{ marginTop: "12px", marginBottom: "8px" }}>Ressources</h3>
 
@@ -521,33 +649,90 @@ function App() {
         </section>
 
         <section style={card}>
+          <h2>Stratégie</h2>
+          <p>🧠 Mode exploration : {explorationMode}</p>
+          <p>🎯 Objectif : {strategyGoal}</p>
+          <p>🤖 Broker : {brokerStatus}</p>
+          <p>💹 Auto trade : {autoTradeEnabled ? "Actif" : "Inactif"}</p>
+          <p>⚡ Dernière action bot : {autoTradeStatus}</p>
+          <p>🗺️ Cellules explorées : {displayState.knownCells.length}</p>
+          <p>🏝 Îles détectées : {displayState.discoveredIslandsCount}</p>
+        </section>
+
+        <section style={card}>
+          <h2>🧠 Radar stratégique</h2>
+
+          {!displayState.strategyAnalysis ? (
+            <p>Analyse en cours...</p>
+          ) : (
+            <>
+              <p><strong>Mode :</strong> {displayState.strategyAnalysis.mode}</p>
+              <p><strong>Conseil :</strong> {displayState.strategyAnalysis.advice}</p>
+              <p><strong>Frontières détectées :</strong> {displayState.strategyAnalysis.frontierCount}</p>
+              <p><strong>Zones sable :</strong> {displayState.strategyAnalysis.sandCount}</p>
+              <p><strong>Zones mer :</strong> {displayState.strategyAnalysis.seaCount}</p>
+              <p><strong>Zones rochers :</strong> {displayState.strategyAnalysis.rocksCount}</p>
+
+              {displayState.strategyAnalysis.bestTarget && (
+                <p>
+                  <strong>🎯 Cible recommandée :</strong>{" "}
+                  ({displayState.strategyAnalysis.bestTarget.x}, {displayState.strategyAnalysis.bestTarget.y})
+                </p>
+              )}
+
+              {displayState.strategyAnalysis.centerSand && (
+                <p>
+                  <strong>🏝 Centre des îles :</strong>{" "}
+                  ({displayState.strategyAnalysis.centerSand.x}, {displayState.strategyAnalysis.centerSand.y})
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        <section style={card}>
+          <h2>📋 Résumé mission</h2>
+          <p>Broker : {brokerStatus}</p>
+          <p>Auto trade : {autoTradeEnabled ? "Actif" : "Inactif"}</p>
+          <p>Dernière action : {autoTradeStatus}</p>
+          <p>Objectif courant : {displayState.strategyAnalysis?.advice || "-"}</p>
+        </section>
+
+        <section style={card}>
           <h2>Déplacements</h2>
 
-          <button onClick={() => handleMove("N")} disabled={loadingMove} style={moveButton}>
-            Move N
-          </button>
+          <div style={moveGrid}>
+            <button onClick={() => handleMove("N")} disabled={loadingMove} style={moveButton}>
+              ↑ N
+            </button>
+            <button onClick={() => handleMove("S")} disabled={loadingMove} style={moveButton}>
+              ↓ S
+            </button>
+            <button onClick={() => handleMove("E")} disabled={loadingMove} style={moveButton}>
+              → E
+            </button>
+            <button onClick={() => handleMove("W")} disabled={loadingMove} style={moveButton}>
+              ← W
+            </button>
+          </div>
 
-          <button onClick={() => handleMove("S")} disabled={loadingMove} style={moveButton}>
-            Move S
-          </button>
-
-          <button onClick={() => handleMove("E")} disabled={loadingMove} style={moveButton}>
-            Move E
-          </button>
-
-          <button onClick={() => handleMove("W")} disabled={loadingMove} style={moveButton}>
-            Move W
-          </button>
-
-          {loadingMove && <p>Cooldown 5s...</p>}
+          {loadingMove && <p style={{ marginTop: "8px" }}>Cooldown 5s...</p>}
         </section>
       </aside>
 
-      <main style={{ overflow: "auto" }}>
+      <main style={{ overflow: "auto", ...card, padding: "18px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+          <h2 style={{ margin: 0 }}>Carte</h2>
+          <div style={{ fontSize: "14px", color: "#b8c4ff" }}>
+            Zone connue : {displayState.knownCells.length} cases
+          </div>
+        </div>
+
         <MapGrid
           knownCells={displayState.knownCells}
           boatX={displayState.boat.x}
           boatY={displayState.boat.y}
+          targetCell={displayState.strategyAnalysis?.bestTarget}
         />
       </main>
 
@@ -574,6 +759,13 @@ function App() {
           <p style={{ marginTop: "6px" }}>
             <strong>Activé :</strong> {autoTradeEnabled ? "Oui" : "Non"}
           </p>
+        </section>
+
+        <section style={card}>
+          <h3>Analyse Marché</h3>
+          <MarketStatLine label="BOISIUM" stats={boisiumStats} />
+          <MarketStatLine label="FERONIUM" stats={feroniumStats} />
+          <MarketStatLine label="CHARBONIUM" stats={charboniumStats} />
         </section>
 
         <section style={card}>
@@ -686,21 +878,23 @@ function App() {
         {displayState.history.length === 0 ? (
           <p>Aucun déplacement.</p>
         ) : (
-          displayState.history
-            .slice()
-            .reverse()
-            .map((move, i) => (
-              <div key={`${move.timestamp || "t"}-${i}`} style={logCard}>
-                <strong>{move.direction || "-"}</strong>
-                <div>
-                  📍 ({move.position?.x ?? 0},{move.position?.y ?? 0})
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {displayState.history
+              .slice()
+              .reverse()
+              .map((move, i) => (
+                <div key={`${move.timestamp || "t"}-${i}`} style={historyCard}>
+                  <div style={historyTopRow}>
+                    <strong style={{ color: "#7db8ff" }}>{move.direction || "-"}</strong>
+                    <span style={historyTime}>
+                      {move.timestamp ? new Date(move.timestamp).toLocaleTimeString() : "-"}
+                    </span>
+                  </div>
+                  <div>📍 Position : ({move.position?.x ?? 0}, {move.position?.y ?? 0})</div>
+                  <div>⚡ Énergie restante : {move.energy ?? "-"}</div>
                 </div>
-                <div>⚡ {move.energy ?? "-"}</div>
-                <div>
-                  🕒 {move.timestamp ? new Date(move.timestamp).toLocaleTimeString() : "-"}
-                </div>
-              </div>
-            ))
+              ))}
+          </div>
         )}
 
         <h2 style={{ marginTop: "20px" }}>Îles connues</h2>
@@ -714,9 +908,7 @@ function App() {
               <div>État : {entry.islandState || "-"}</div>
               <div>Bonus : {entry.island?.bonusQuotient ?? 0}</div>
               {entry.island?.x !== undefined && entry.island?.y !== undefined && (
-                <div>
-                  ({entry.island.x},{entry.island.y})
-                </div>
+                <div>Coordonnées : ({entry.island.x}, {entry.island.y})</div>
               )}
             </div>
           ))
@@ -730,9 +922,7 @@ function App() {
           displayState.detectedIslands.map((island) => (
             <div key={island.id} style={logCard}>
               <strong>🏝 Île détectée</strong>
-              <div>
-                📍Coordonnées : ({island.coords.x}, {island.coords.y})
-              </div>
+              <div>📍 Coordonnées : ({island.coords.x}, {island.coords.y})</div>
               <div style={{ fontSize: "12px", color: "#aaa", marginTop: "4px" }}>
                 X={island.coords.x} | Y={island.coords.y}
               </div>
@@ -744,45 +934,97 @@ function App() {
   );
 }
 
+function MarketStatLine({ label, stats }) {
+  if (!stats) {
+    return (
+      <p style={{ margin: "6px 0" }}>
+        {label} : pas de données
+      </p>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: "8px", lineHeight: 1.45 }}>
+      <strong>{label}</strong>
+      <div style={{ fontSize: "13px", color: "#d0d8ff" }}>
+        min: {stats.min} | moy: {stats.avg} | max: {stats.max} | offres: {stats.count}
+      </div>
+    </div>
+  );
+}
+
 const card = {
-  background: "#171717",
+  background: "rgba(20,20,25,0.92)",
   padding: "15px",
-  borderRadius: "10px",
-  marginBottom: "10px"
+  borderRadius: "12px",
+  marginBottom: "12px",
+  border: "1px solid rgba(255,255,255,0.08)",
+  boxShadow: "0 8px 22px rgba(0,0,0,0.28)"
 };
 
 const marketPanel = {
-  background: "#171717",
+  background: "rgba(20,20,25,0.92)",
   padding: "15px",
-  borderRadius: "10px",
-  maxHeight: "90vh",
-  overflowY: "auto"
+  borderRadius: "12px",
+  maxHeight: "94vh",
+  overflowY: "auto",
+  border: "1px solid rgba(255,255,255,0.08)"
 };
 
 const rightPanel = {
-  background: "#171717",
+  background: "rgba(20,20,25,0.92)",
   padding: "15px",
-  borderRadius: "10px",
-  maxHeight: "90vh",
-  overflowY: "auto"
+  borderRadius: "12px",
+  maxHeight: "94vh",
+  overflowY: "auto",
+  border: "1px solid rgba(255,255,255,0.08)"
 };
 
 const logCard = {
-  background: "#0f0f0f",
+  background: "rgba(10,10,14,0.95)",
   padding: "10px",
-  borderRadius: "8px",
-  marginBottom: "8px"
+  borderRadius: "10px",
+  marginBottom: "8px",
+  border: "1px solid rgba(255,255,255,0.05)"
+};
+
+const historyCard = {
+  background: "rgba(10,10,14,0.95)",
+  padding: "10px",
+  borderRadius: "10px",
+  borderLeft: "4px solid #2f6fed",
+  border: "1px solid rgba(255,255,255,0.05)"
+};
+
+const historyTopRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: "6px"
+};
+
+const historyTime = {
+  fontSize: "12px",
+  color: "#9aa6c7"
+};
+
+const moveGrid = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "8px"
 };
 
 const moveButton = {
   display: "block",
   width: "100%",
-  marginBottom: "8px",
   padding: "10px",
-  background: "#2f6fed",
+  background: "linear-gradient(135deg, #2f6fed 0%, #4a8fff 100%)",
   border: "none",
   borderRadius: "8px",
-  color: "white"
+  color: "white",
+  fontWeight: 700,
+  cursor: "pointer",
+  boxShadow: "0 6px 18px rgba(47,111,237,0.25)"
 };
 
 const inputStyle = {
@@ -792,21 +1034,24 @@ const inputStyle = {
   borderRadius: "8px",
   border: "1px solid #333",
   background: "#0f0f0f",
-  color: "white"
+  color: "white",
+  boxSizing: "border-box"
 };
 
 const actionButton = {
   width: "100%",
   padding: "10px",
-  background: "#2f6fed",
+  background: "linear-gradient(135deg, #2f6fed 0%, #4a8fff 100%)",
   border: "none",
   borderRadius: "8px",
-  color: "white"
+  color: "white",
+  fontWeight: 700,
+  cursor: "pointer"
 };
 
-function MapGrid({ knownCells, boatX, boatY }) {
-  const size = 95;
-  const cellSize = 20;
+function MapGrid({ knownCells, boatX, boatY, targetCell }) {
+  const size = 81;
+  const cellSize = 15;
 
   const cellMap = new Map();
   knownCells.forEach((c) => cellMap.set(`${c.x},${c.y}`, c));
@@ -818,26 +1063,52 @@ function MapGrid({ knownCells, boatX, boatY }) {
       const cell = cellMap.get(`${x},${y}`);
 
       let bg = "#222";
+
+      const islandName = cell?.island_name || cell?.islandName || "";
+      const isTradingIsland =
+        islandName.toLowerCase().includes("market") ||
+        islandName.toLowerCase().includes("commerce") ||
+        islandName.toLowerCase().includes("trade");
+
       if (cell?.type === "SEA") bg = "#3ea6ff";
       if (cell?.type === "SAND") bg = "#d9c36a";
       if (cell?.type === "ROCKS") bg = "#888";
+      if (isTradingIsland) bg = "#9b59b6";
 
       const isBoat = x === boatX && y === boatY;
+      const isTarget = targetCell && x === targetCell.x && y === targetCell.y;
 
       cells.push(
         <div
           key={`${x}-${y}`}
+          title={
+            isTradingIsland
+              ? `Île commerçante (${x}, ${y})`
+              : isTarget
+                ? `Cible stratégique (${x}, ${y})`
+                : `(${x}, ${y})${cell?.type ? ` - ${cell.type}` : ""}`
+          }
           style={{
             width: cellSize,
             height: cellSize,
-            background: isBoat ? "#ff4d4f" : bg,
+            background: isBoat ? "#ff4d4f" : isTarget ? "#7cfc00" : bg,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            borderRadius: "3px"
+            borderRadius: "3px",
+            transition: "all 0.2s ease",
+            transform: isBoat ? "scale(1.15)" : isTarget ? "scale(1.08)" : "scale(1)",
+            boxShadow: isBoat
+              ? "0 0 12px rgba(255,77,79,0.7)"
+              : isTradingIsland
+                ? "0 0 8px rgba(155,89,182,0.8)"
+                : isTarget
+                  ? "0 0 10px rgba(124,252,0,0.8)"
+                  : "none",
+            border: isTradingIsland || isTarget ? "2px solid #ffffff" : "none"
           }}
         >
-          {isBoat ? "⛵" : ""}
+          {isBoat ? "⛵" : isTradingIsland ? "🏪" : isTarget ? "🎯" : ""}
         </div>
       );
     }
@@ -848,7 +1119,8 @@ function MapGrid({ knownCells, boatX, boatY }) {
       style={{
         display: "grid",
         gridTemplateColumns: `repeat(${size * 2 + 1}, ${cellSize}px)`,
-        gap: "2px"
+        gap: "2px",
+        justifyContent: "start"
       }}
     >
       {cells}
